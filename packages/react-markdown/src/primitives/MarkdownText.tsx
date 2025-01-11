@@ -19,10 +19,11 @@ import {
   DefaultCodeBlockContent,
   DefaultCodeHeader,
 } from "../overrides/defaultComponents";
-import { useCallbackRef } from "@radix-ui/react-use-callback-ref";
 import { CodeOverride } from "../overrides/CodeOverride";
 import { Primitive } from "@radix-ui/react-primitive";
 import classNames from "classnames";
+import { marked } from 'marked';
+import { memo, useMemo } from 'react';
 
 const { useSmooth } = INTERNAL;
 
@@ -57,6 +58,14 @@ export type MarkdownTextPrimitiveProps = Omit<
   smooth?: boolean | undefined;
 };
 
+const MemoizedMarkdownBlock = memo(
+  ({ content, components, ...rest }: { content: string; components: Options['components'] } & Omit<Options, "components" | "children">) => {
+    return <ReactMarkdown components={components} {...rest}>{content}</ReactMarkdown>;
+  }
+);
+
+MemoizedMarkdownBlock.displayName = 'MemoizedMarkdownBlock';
+
 export const MarkdownTextPrimitive: ForwardRefExoticComponent<MarkdownTextPrimitiveProps> &
   RefAttributes<MarkdownTextPrimitiveElement> = forwardRef<
   MarkdownTextPrimitiveElement,
@@ -76,30 +85,27 @@ export const MarkdownTextPrimitive: ForwardRefExoticComponent<MarkdownTextPrimit
   ) => {
     const { text, status } = useSmooth(useContentPartText(), smooth);
 
-    const {
-      pre = DefaultPre,
-      code = DefaultCode,
-      SyntaxHighlighter = DefaultCodeBlockContent,
-      CodeHeader = DefaultCodeHeader,
-      by_language,
-      ...componentsRest
-    } = userComponents ?? {};
-    const components: Options["components"] = {
-      ...componentsRest,
+    const components = useMemo(() => ({
+      ...userComponents,
       pre: PreOverride,
-      code: useCallbackRef((props) => (
+      code: (props: any) => (
         <CodeOverride
           components={{
-            Pre: pre,
-            Code: code,
-            SyntaxHighlighter,
-            CodeHeader,
+            Pre: userComponents?.pre ?? DefaultPre,
+            Code: userComponents?.code ?? DefaultCode,
+            SyntaxHighlighter: userComponents?.SyntaxHighlighter ?? DefaultCodeBlockContent,
+            CodeHeader: userComponents?.CodeHeader ?? DefaultCodeHeader,
           }}
           componentsByLanguage={componentsByLanguage}
           {...props}
         />
-      )),
-    };
+      ),
+    }), [userComponents, componentsByLanguage]);
+
+    const blocks = useMemo(() => {
+      const tokens = marked.lexer(text);
+      return tokens.map(token => token.raw);
+    }, [text]);
 
     return (
       <Container
@@ -108,9 +114,14 @@ export const MarkdownTextPrimitive: ForwardRefExoticComponent<MarkdownTextPrimit
         className={classNames(className, containerProps?.className)}
         ref={forwardedRef}
       >
-        <ReactMarkdown components={components} {...rest}>
-          {text}
-        </ReactMarkdown>
+        {blocks.map((block, index) => (
+          <MemoizedMarkdownBlock
+            key={`block-${index}`}
+            content={block}
+            components={components}
+            {...rest}
+          />
+        ))}
       </Container>
     );
   },
